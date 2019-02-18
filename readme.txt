@@ -1,3 +1,8 @@
+*************************
+*** WORK IN PROGRES   ***
+*** UNDER DEVELOPMENT ***
+*************************
+
 /home/osingla/rpi-kernel/linux
 CROSS_COMPILE=arm-linux-gnu-
 
