@@ -267,7 +267,7 @@ static int mpik_channel_create(mpik_ioctl_channel_create_t *m) {
 	ch->nb_sent_waiting = 0;
 	for (int k = 0; k < MAXNB_SEND_WAITING; k++)
 		ch->send_waiting[k].tid = -1;
-    init_waitqueue_head(&ch->queue);
+    init_waitqueue_head(&ch->queue_task_waiting_on_recv);
 	
 done:
 	mutex_unlock(&mutex_channels);
@@ -403,7 +403,7 @@ static int mpik_receive(mpik_ioctl_receive_t *m) {
 
 	ch->index = -1;
 	mutex_unlock(&mutex_channels);
-	wait_event_interruptible(ch->queue, ch->index != -1);
+	wait_event_interruptible(ch->queue_task_waiting_on_recv, ch->index != -1);
 	DEBUG("Woke up - index=%d", ch->index);
 	return ch->index;
 
@@ -423,6 +423,27 @@ static int mpik_reply(mpik_ioctl_reply_t *m) {
 
 	mutex_lock(&mutex_channels);
 
+	int status = 0;
+	if ((s.index < 0) || (s.index >= MAXNB_SEND_WAITING)) {
+		status = -EINVAL;
+		goto done;
+	}
+
+	channel_t *ch = channels[s.chid];
+
+	int index = ch->index;
+	send_waiting_t *sendw = &ch->send_waiting[index];
+
+	int ok = access_ok(VERIFY_WRITE, sendw->reply_buffer, s.reply_len);
+	DEBUG("### ok=%d - [%s] %d\n", ok, s.reply_buffer, s.reply_len);
+	memcpy(sendw->reply_buffer, s.reply_buffer, s.reply_len);
+
+	sendw->reply_msg_sent = 1;
+	mutex_unlock(&mutex_channels);
+	wake_up_interruptible(&sendw->queue_task_waiting_on_send);
+	return 0;
+
+done:
 	mutex_unlock(&mutex_channels);
 	return 0;
 }
@@ -483,17 +504,16 @@ DEBUG("&&& index=%d", index);
 	sendw->tid = current->pid;
 	sendw->reply_buffer = s.reply_buffer;
 	sendw->reply_maxlen = s.reply_maxlen;
-    init_waitqueue_head(&sendw->queue);
+	sendw->reply_msg_sent = 0;
+    init_waitqueue_head(&sendw->queue_task_waiting_on_send);
 
 	// Wake-up the receiving task which is blocked on mpik_receive()
 	ch->index = index;
-DEBUG("&&&");
-	wake_up_interruptible(&ch->queue);
-DEBUG("&&&");
+	wake_up_interruptible(&ch->queue_task_waiting_on_recv);
 
 	// Sender is now blocked - It will be wake up when the receiver task will reply
 	mutex_unlock(&mutex_channels);
-	wait_event_interruptible(sendw->queue, false);
+	wait_event_interruptible(sendw->queue_task_waiting_on_send, sendw->reply_msg_sent);
 	return 0;
 
 done:	
@@ -533,8 +553,6 @@ long mpik_ioctl(
     unsigned int cmd,
     unsigned long param)
 {
-	DEBUG("cmd=%X param=%lX", cmd, param);
-
 	switch (cmd) {
 		case IOCTL_MPIK_CHANNEL_CREATE:
 			return mpik_channel_create((mpik_ioctl_channel_create_t *)param);
@@ -552,6 +570,9 @@ long mpik_ioctl(
 			return mpik_send((mpik_ioctl_send_t *)param);
 		case IOCTL_MPIK_PING:
 			return mpik_ping((mpik_ioctl_ping_t *)param);
+		default:
+			DEBUG("cmd=%X param=%lX", cmd, param);
+			break;
 	}
 
 	return 0;
@@ -574,7 +595,7 @@ static int __init mpik_proc_init(void)
 	{
 		return -EIO;
 	}
-	DEBUG("mpik_dev_nb=%X", mpik_dev_nb);
+//	DEBUG("mpik_dev_nb=%X", mpik_dev_nb);
 
 	// Get a cdev object from the kernel
 	mpik_cdev = cdev_alloc();
@@ -610,7 +631,7 @@ static int __init mpik_proc_init(void)
 
 	// Create /proc/mpik
 	procfs_ent = proc_create("mpik", 0666, NULL, &procfs_mpik);
-	DEBUG("procfs_ent=%p", procfs_ent);
+//	DEBUG("procfs_ent=%p", procfs_ent);
 	//	seq_open(filp, &scull_seq_ops);
 
 	// Channels

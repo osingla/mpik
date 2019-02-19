@@ -19,10 +19,11 @@
 #define MAXNB_SEND_WAITING	32
 
 typedef struct {
-	pid_t tid;								// Task id of task waiting on the mpik_send()
-	wait_queue_head_t queue;				// To awake the task waiting on mpik_send() [reply]
-	void *reply_buffer;						// Reply buffer address in user-space
-	int reply_maxlen;						// Maximum size of the reply message
+	pid_t tid;										// Task id of task waiting on the mpik_send()
+	wait_queue_head_t queue_task_waiting_on_send;	// To awake the task waiting on mpik_send() [reply]
+	void *reply_buffer;								// Reply buffer address in user-space
+	int reply_maxlen;								// Maximum size of the reply message
+	int reply_msg_sent;								// 0 or !0
 } send_waiting_t;
 
 typedef struct {
@@ -38,10 +39,10 @@ typedef struct {
 	int recv_buffer_sz;									// Maximum size of the message that can be received
 	int nb_cnx;											// Current number of tasks attached to this channel
 	channel_cnx_t channel_cnx[MAXNB_CHANNELS_ATTACHED];	// Information for the tasks attached to this channel - See nb_cnx
-	wait_queue_head_t queue;							// To awake the task waiting on mpik_receive()
+	wait_queue_head_t queue_task_waiting_on_recv;		// To awake the task waiting on mpik_receive()
 	int nb_sent_waiting;								// Number of sent waiting for the reply
 	send_waiting_t send_waiting[MAXNB_SEND_WAITING];	// Tasks waiting on mpik_send()
-	int index;											// 
+	int index;											// Index in send_waiting{}
 } channel_t;
 
 

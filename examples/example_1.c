@@ -53,7 +53,7 @@ static void *thread2(void *arg) {
 	sleep(10);
 	int s = mpik_send(chid1, send_buffer, sizeof(send_buffer), reply_buffer, sizeof(reply_buffer), 0);
 	DEBUG("s=%d", s);
-	DEBUG("reply_buffer=[%s]\n", reply_buffer);
+	DEBUG("reply_buffer=[%s] %d\n", reply_buffer, strlen(reply_buffer));
 
 	return NULL;
 }
