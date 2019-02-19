@@ -12,8 +12,8 @@ ccflags-y  += $(EXTRA_CFLAGS)
 KBUILD_NOPEDANTIC=1
 
 all:
-	make ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KDIR) M=$(PWD) modules
-	mv mpik.ko ../target
+	@make ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) -C $(KDIR) M=$(PWD) modules
+	@mv mpik.ko ../target
 
 clean:
-	make -C $(KDIR) M=$(PWD) clean
+	@make -C $(KDIR) M=$(PWD) clean

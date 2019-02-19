@@ -24,7 +24,8 @@ static struct device* mpik_dev;
 
 // Channels
 static struct mutex mutex_channels;
-static int nb_channels;
+static int nb_channels;							///< Number of channels defined and created
+static int nb_channels_allocated;				///< Number of channels allocated
 static channel_t *channels[MAXNB_CHANNELS];
 
 // procfs
@@ -34,8 +35,6 @@ static char *procfs_buff;
 
 // Function prototypes
 static ssize_t DriverRead(struct file* instanz, char __user* user, size_t count, loff_t* offset);
-static int mpik_open(struct inode* geraete_datei, struct file* instanz);
-static int mpik_close(struct inode* geraete_datei, struct file* instanz);
 
 static struct proc_dir_entry *procfs_ent;
 
@@ -58,9 +57,11 @@ static void debug(char const *file, int line, char const *fcnt, char const *fmt,
 	va_start(args, fmt);
 	vsnprintf(buff, sizeof(buff)-1, fmt, args);
 	va_end(args);
-   	printk(KERN_INFO "%s.%d - %-22s - %d %d - %s\n", __file__(file), line, fcnt, current->pid, current->tgid, buff);
+   	printk(KERN_INFO "%22s.%d - %22s - %d %d - %s\n", 
+		__file__(file), line, fcnt, current->pid, current->tgid, buff);
 }
 
+#if 0
 static void *scull_seq_start(struct seq_file *s, loff_t *pos)
 {
 //	if (*pos >= scull_nr_devs)
@@ -87,7 +88,7 @@ static int scull_seq_show(struct seq_file *s, void *v)
 {
 	return 0;
 }
-	
+
 /*
  * Set up the sequence operator pointers.
  */
@@ -97,6 +98,7 @@ static struct seq_operations scull_seq_ops = {
 	.stop  = scull_seq_stop,
 	.show  = scull_seq_show
 };
+#endif
 
 static ssize_t procfs_write(struct file *file, const char __user *ubuf, size_t count, loff_t *ppos) 
 {
@@ -122,14 +124,41 @@ static void add_procfs_buffer(char const *fmt, ...) {
 	procfs_len = strlen(procfs_buff)+1;
 }
 
-static void gen_procfs_buffer(void) {
-	int n;
-	
-	add_procfs_buffer("%d channel%s\n\n", nb_channels, (nb_channels > 1) ? "s" : "");
-	add_procfs_buffer("Name       Owner\n");
-	for (n = 0; n < nb_channels; n++) {
+static void show_internal_info(void) {
+
+	printk(KERN_ERR "%d channel%s created - %d channels allocated%s\n", 
+		nb_channels, (nb_channels > 1) ? "s" : "",
+		nb_channels_allocated, (nb_channels_allocated > 1) ? "s" : "");
+	printk(KERN_ERR "Name       Owner\n");
+	for (int n = 0; n < nb_channels_allocated; n++) {
 		channel_t *s = channels[n];
-		add_procfs_buffer("%-22s %3d %6d %6d\n", s->name, s->chid, s->pid_owner, s->tgid_owner);
+		char temp[80];
+		strcpy(temp, "");
+		for (int k = 0; k < s->nb_cnx; k++) {
+			char t[16];
+			sprintf(t, "%s%d", (k>0) ? "," : "", s->channel_cnx[k].tid);
+			strcat(temp, t);
+		}
+		printk(KERN_ERR "%22s %6d %6d %d [%s]\n", s->name, s->tid_owner, s->pid_owner, s->nb_cnx, temp);
+	}
+}
+
+static void gen_procfs_buffer(void) {
+	
+	add_procfs_buffer("%d channel%s created - %d channels allocated%s\n\n", 
+		nb_channels, (nb_channels > 1) ? "s" : "",
+		nb_channels_allocated, (nb_channels_allocated > 1) ? "s" : "");
+	add_procfs_buffer("Name       Owner\n");
+	for (int n = 0; n < nb_channels_allocated; n++) {
+		channel_t *s = channels[n];
+		char temp[80];
+		strcpy(temp, "");
+		for (int k = 0; k < s->nb_cnx; k++) {
+			char t[16];
+			sprintf(t, "%s%d", (k>0) ? "," : "", s->channel_cnx[k].tid);
+			strcat(temp, t);
+		}
+		add_procfs_buffer("%-22s %6d %6d %d [%s]\n", s->name, s->tid_owner, s->pid_owner, s->nb_cnx, temp);
 	}
 }
  
@@ -173,27 +202,14 @@ static ssize_t DriverRead(struct file* instanz, char __user* user, size_t count,
 	return 0;
 }
 
-static channel_t *search_channel_by_name(char const *name) {
-	int n;
+static int search_channel_by_name(char const *name) {
 	
-	for (n = 0; n < nb_channels; n++) {
+	for (int n = 0; n < nb_channels_allocated; n++) {
 		channel_t *c = channels[n];
-		if (!strcmp(c->name, name))
-			return c;
+		if ((c->tid_owner != -1) && !strcmp(c->name, name))
+			return n;
 	}
-	return NULL;
-}
-
-static channel_t *search_channel_by_id(int chid) {
-	int n;
-	
-	for (n = 0; n < nb_channels; n++) {
-		channel_t *c = channels[n];
-DEBUG("%d: %d , %d - [%s]", n, c->chid, chid, c->name);
-		if (c->chid == chid)
-			return c;
-	}
-	return NULL;
+	return -1;
 }
 
 static int mpik_channel_create(mpik_ioctl_channel_create_t *m) {
@@ -207,30 +223,55 @@ static int mpik_channel_create(mpik_ioctl_channel_create_t *m) {
 	
 	mutex_lock(&mutex_channels);
 
-	// Find a new channel ID
-	int chid = -1;
-	for (int n = 0; n < nb_channels; n++) {
-		channel_t *c = channels[n];
-		if (c->chid > chid)
-			chid = c->chid;
+	int chid = search_channel_by_name(s.name);
+	if (chid != -1) {
+		chid = -EEXIST;
+		goto done;
 	}
 
-	channel_t *ch = (channel_t *)kmalloc(sizeof(channel_t), GFP_KERNEL);
-	channels[nb_channels++] = ch;
+	channel_t *ch = NULL;
+	if (nb_channels == nb_channels_allocated) {
+		ch = (channel_t *)kmalloc(sizeof(channel_t), GFP_KERNEL);
+		if (ch == NULL) {
+			chid = -ENOMEM;
+			goto done;
+		}
+		chid = nb_channels;
+		channels[nb_channels++] = ch;
+		nb_channels_allocated++;
+	}
+	else {
+		for (int n = 0; n < nb_channels_allocated; n++) {
+			channel_t *c = channels[n];
+			if (c->tid_owner == -1) {
+				chid = n;
+				break;
+			}
+		}
+		if (chid == -1) {
+			printk(KERN_ERR "Internal error\n");
+			show_internal_info();
+			chid = -ECANCELED;
+			goto done;
+		}
+		ch = channels[chid];
+		nb_channels++;
+	}
 	
 	memset(ch, 0, sizeof(channel_t));
 	strncpy(ch->name, m->name, sizeof(ch->name));
 	ch->maxnb_msg_buffered = s.maxnb_msg_buffered;
-	ch->pid_owner = current->pid;
-	ch->tgid_owner = current->tgid;
+	ch->tid_owner = current->pid;
+	ch->pid_owner = current->tgid;
+	ch->nb_cnx = 0;
+	ch->nb_sent_waiting = 0;
+	for (int k = 0; k < MAXNB_SEND_WAITING; k++)
+		ch->send_waiting[k].tid = -1;
     init_waitqueue_head(&ch->queue);
 	
-	ch->chid = chid+1;
-		
+done:
 	mutex_unlock(&mutex_channels);
-	DEBUG("[%s] chid=%d", s.name, chid);
-
-	return chid+1;
+	return chid;
 }
 
 static int mpik_channel_delete(mpik_ioctl_channel_delete_t *m) {
@@ -241,106 +282,180 @@ static int mpik_channel_delete(mpik_ioctl_channel_delete_t *m) {
 
 	DEBUG("chid=%d msec_timeout=%d", 
 		s.chid, s.msec_timeout);
-	
+
 	int status = 0;
 	mutex_lock(&mutex_channels);
 
-	channel_t *ch = search_channel_by_id(s.chid);
-	if (ch == NULL) {
+	if ((s.chid < 0) || (s.chid >= nb_channels_allocated)) {
+		status = -EINVAL;
+		goto done;
+	}
+	
+	channel_t *ch = channels[s.chid];
+	if (ch->tid_owner == -1) {
 		status = -ENOENT;
 		goto done;
 	}
+	
+	if (ch->tid_owner != current->pid) {
+		status = -EPERM;
+		goto done;
+	}
+	
+	memset(ch, 0, sizeof(channel_t));
+	ch->tid_owner = -1;
+	nb_channels--;
 
 done:	
-	mutex_lock(&mutex_channels);
+	mutex_unlock(&mutex_channels);
 	return status;
 }
 
 static int mpik_channel_connect(mpik_ioctl_channel_connect_t *m) {
 
 	mpik_ioctl_channel_connect_t s;
-	channel_t *ch;
-	
 	if (copy_from_user(&s, m, sizeof(mpik_ioctl_channel_connect_t)))
 		return -EACCES;
 
 	DEBUG("name=[%s] msec_timeout=%d", 
 		s.name, s.msec_timeout);
 
-	ch = search_channel_by_name(s.name);
-	if (ch == NULL)
-		return -ENOENT;
+	int status = 0;
+	mutex_lock(&mutex_channels);
+
+	int chid = search_channel_by_name(s.name);
+	if (chid == -1) {
+		status = -ENOENT;
+		goto done;
+	}
+
+	channel_t *ch = channels[chid];
+	if (ch->tid_owner == current->pid) {
+		status = -EPERM;
+		goto done;
+	}
+
+	for (int k = 0; k < ch->nb_cnx; k++) {
+		if (ch->channel_cnx[k].tid == current->pid) {
+			status = -ECONNREFUSED;
+			goto done;
+		}
+	}
+
+	if (ch->nb_cnx == MAXNB_CHANNELS_ATTACHED) {
+		status = -ECONNREFUSED;
+		goto done;
+	}
+
+	ch->channel_cnx[ch->nb_cnx].tid = current->pid;
+	ch->nb_cnx++;
+	DEBUG("->CONNECT %d", ch->nb_cnx);
 	
-	return 0;
+done:	
+	mutex_unlock(&mutex_channels);
+	return status;
 }
 
 static int mpik_channel_disconnect(mpik_ioctl_channel_disconnect_t *m) {
 
 	mpik_ioctl_channel_disconnect_t s;
-	
 	if (copy_from_user(&s, m, sizeof(mpik_ioctl_channel_disconnect_t)))
 		return -EACCES;
+
+	int status = 0;
+	mutex_lock(&mutex_channels);
 
 	DEBUG("chid=%d msec_timeout=%d", 
 		s.chid, s.msec_timeout);
 
-	return 0;
+done:	
+	mutex_unlock(&mutex_channels);
+	return status;
 }
 
 static int mpik_receive(mpik_ioctl_receive_t *m) {
 
 	mpik_ioctl_receive_t s;
-	channel_t *ch;
-	
 	if (copy_from_user(&s, m, sizeof(mpik_ioctl_receive_t)))
 		return -EACCES;
 
 	DEBUG("mpik_receive: chid=%d recv_buffer=%p recv_buffer_sz=%d msec_timeout=%d", 
 		s.chid, s.recv_buffer, s.recv_buffer_sz, s.msec_timeout);
 
-	ch = search_channel_by_id(s.chid);
-	if (ch == NULL)
-		return -ENOENT;
+	mutex_lock(&mutex_channels);
+	int status = -EINVAL;
+	if ((s.chid < 0) || (s.chid >= nb_channels_allocated))
+		goto done;
+	
+	channel_t *ch = channels[s.chid];
+	if (ch->tid_owner == -1) {
+		status = -ENOENT;
+		goto done;
+	}
+		
+	if (ch->tid_owner != current->pid) {
+		status = -EPERM;
+		goto done;
+	}
 		
 	ch->recv_buffer = s.recv_buffer;
 	ch->recv_buffer_sz = s.recv_buffer_sz;
 
 	ch->index = -1;
+	mutex_unlock(&mutex_channels);
 	wait_event_interruptible(ch->queue, ch->index != -1);
 	DEBUG("Woke up - index=%d", ch->index);
 	return ch->index;
+
+done:	
+	mutex_unlock(&mutex_channels);
+	return status;
 }
 
 static int mpik_reply(mpik_ioctl_reply_t *m) {
 
 	mpik_ioctl_reply_t s;
-	
 	if (copy_from_user(&s, m, sizeof(mpik_ioctl_reply_t)))
 		return -EACCES;
 
 	DEBUG("chid=%d index=%d reply_buffer=%p reply_len=%d msec_timeout=%d", 
 		s.chid, s.index, s.reply_buffer, s.reply_len, s.msec_timeout);
 
+	mutex_lock(&mutex_channels);
+
+	mutex_unlock(&mutex_channels);
 	return 0;
 }
 
 static int mpik_send(mpik_ioctl_send_t *m) {
 
 	mpik_ioctl_send_t s;
-	channel_t *ch;
-	send_waiting_t *sendw;
-	int index;
-	
 	if (copy_from_user(&s, m, sizeof(mpik_ioctl_send_t)))
 		return -EACCES;
 
 	DEBUG("chid=%d send_buffer=%p send_len=%d reply_buffer=%p reply_maxlen=%d msec_timeout=%d", 
 		s.chid, s.send_buffer, s.send_len, s.reply_buffer, s.reply_maxlen, s.msec_timeout);
 
-	ch = search_channel_by_id(s.chid);
-	if (ch == NULL)
-		return -ENOENT;
+	mutex_lock(&mutex_channels);
 
+	int status = 0;
+	if ((s.chid < 0) || (s.chid >= nb_channels_allocated)) {
+		status = -EINVAL;
+		goto done;
+	}
+	
+	channel_t *ch = channels[s.chid];
+	if (ch->tid_owner == -1) {
+		status = -ENOENT;
+		goto done;
+	}
+	
+	// Reached Max number of task waiting on mpik_send() ?
+	if (ch->nb_sent_waiting == MAXNB_SEND_WAITING) {
+		status = -EPERM;
+		goto done;
+	}
+	
 	// Copy the message into the receiver memory
 	DEBUG("### [%s]\n", s.send_buffer);
 	int ok = access_ok(VERIFY_WRITE, ch->recv_buffer, s.send_len);
@@ -348,8 +463,24 @@ static int mpik_send(mpik_ioctl_send_t *m) {
 	memcpy(ch->recv_buffer, s.send_buffer, s.send_len);
 	DEBUG("### ok=%d\n", ok);
 
-	index = 0;
-	sendw = &ch->send_waiting[index];
+	int index = -1;
+	for (int k = 0; k < MAXNB_SEND_WAITING; k++) {
+		if (ch->send_waiting[k].tid == -1 ) {
+			index = k;
+			break;
+		}
+	}
+DEBUG("&&& index=%d", index);
+	if (index == -1) {
+		printk(KERN_ERR "Internal error\n");
+		show_internal_info();
+		status = -ECANCELED;
+		goto done;
+	}
+
+	ch->nb_sent_waiting++;
+	send_waiting_t *sendw = &ch->send_waiting[index];
+	sendw->tid = current->pid;
 	sendw->reply_buffer = s.reply_buffer;
 	sendw->reply_maxlen = s.reply_maxlen;
     init_waitqueue_head(&sendw->queue);
@@ -361,9 +492,13 @@ DEBUG("&&&");
 DEBUG("&&&");
 
 	// Sender is now blocked - It will be wake up when the receiver task will reply
+	mutex_unlock(&mutex_channels);
 	wait_event_interruptible(sendw->queue, false);
+	return 0;
 
-	return index;
+done:	
+	mutex_unlock(&mutex_channels);
+	return status;
 }
 
 static int mpik_ping(mpik_ioctl_ping_t *m) {
@@ -376,6 +511,9 @@ static int mpik_ping(mpik_ioctl_ping_t *m) {
 	DEBUG("chid=%d msec_timeout=%d", 
 		s.chid, s.msec_timeout);
 
+	mutex_lock(&mutex_channels);
+
+	mutex_unlock(&mutex_channels);
 	return 0;
 }
 
@@ -478,6 +616,7 @@ static int __init mpik_proc_init(void)
 	// Channels
 	mutex_init(&mutex_channels);
 	nb_channels = 0;
+	nb_channels_allocated = 0;
 	memset(channels, 0, sizeof(channels));
 
 	return 0;

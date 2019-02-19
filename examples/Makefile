@@ -20,10 +20,10 @@ all: example_1
 
 %.o: %.c
 	@$(RM) $@
-	$(CC) $(CFLAGS) -o $@ -c $< 
+	@$(CC) $(CFLAGS) -o $@ -c $< 
 
 example_1:	example_1.o
-	$(CC) -o ../target/example_1 example_1.o $(LDFLAGS)
+	@$(CC) -o ../target/example_1 example_1.o $(LDFLAGS)
 
 #-include $(OBJS:.o=.d)
 

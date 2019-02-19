@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#include <sys/syscall.h>
+#define gettid() syscall(SYS_gettid)
+
 #include "mpik_ioctl.h"
 
 #include "libmpik.h"
@@ -50,6 +53,7 @@ static void *thread2(void *arg) {
 	sleep(10);
 	int s = mpik_send(chid1, send_buffer, sizeof(send_buffer), reply_buffer, sizeof(reply_buffer), 0);
 	DEBUG("s=%d", s);
+	DEBUG("reply_buffer=[%s]\n", reply_buffer);
 
 	return NULL;
 }
@@ -59,8 +63,6 @@ int main(int argc, char *argv[]) {
 	pthread_t tid1, tid2;
 	pthread_attr_t tattr1, tattr2;
 
-	DEBUG("pid=%d", getpid());
-	
 	pthread_attr_init(&tattr1);
 	pthread_create(&tid1, &tattr1, &thread1, NULL);
 	

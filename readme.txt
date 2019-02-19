@@ -1,5 +1,5 @@
 *************************
-*** WORK IN PROGRES   ***
+*** WORK IN PROGRESS  ***
 *** UNDER DEVELOPMENT ***
 *************************
 

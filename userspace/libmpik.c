@@ -50,7 +50,6 @@ mpik_channel_create(const char *name, int msec_timeout, int maxnb_msg_buffered) 
 	s.msec_timeout = msec_timeout;
 	s.maxnb_msg_buffered = maxnb_msg_buffered;
 	int chid = ioctl(mpik_fd, IOCTL_MPIK_CHANNEL_CREATE, &s);
-	DEBUG("status=%d", chid);
 	return chid;
 }
 
@@ -70,7 +69,6 @@ mpik_channel_delete(int chid, int msec_timeout) {
 	s.chid = chid;
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_CHANNEL_DELETE, &s);
-	DEBUG("status=%d", status);
 	return status;
 }
 
@@ -91,7 +89,6 @@ mpik_channel_connect(const char *name, int msec_timeout) {
 	strncpy(s.name, name, MPIK_CHANNEL_MAXLEN);
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_CHANNEL_CONNECT, &s);
-	DEBUG("status=%d", status);
 	return status;
 }
 
@@ -112,7 +109,6 @@ mpik_channel_disconnect(int chid, int msec_timeout) {
 	s.chid = chid;
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_CHANNEL_DISCONNECT, &s);
-	DEBUG("status=%d", status);
 	return status;
 }
 
@@ -135,7 +131,6 @@ mpik_receive(int chid, void *recv_buffer, int recv_buffer_sz, int msec_timeout) 
 	s.recv_buffer_sz = recv_buffer_sz;
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_RECEIVE, &s);
-	DEBUG("@@@ status=%d", status);
 	return status;
 }
 
@@ -158,7 +153,6 @@ mpik_reply(int chid, int index, void const *reply_buffer, int reply_len, int mse
 	s.reply_len = reply_len;
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_REPLY, &s);
-	DEBUG("status=%d", status);
 	return status;
 }
 
@@ -182,7 +176,6 @@ mpik_send(int chid, void const *send_buffer, int send_len, void *reply_buffer, i
 	s.reply_maxlen = reply_maxlen;
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_SEND, &s);
-	DEBUG("status=%d", status);
 	return status;
 }
 
@@ -202,7 +195,6 @@ mpik_ping(int chid, int msec_timeout) {
 	s.chid = chid;
 	s.msec_timeout = msec_timeout;
 	int status = ioctl(mpik_fd, IOCTL_MPIK_PING, &s);
-	DEBUG("status=%d", status);
 	return status;
 }
 
