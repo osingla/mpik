@@ -7,6 +7,7 @@
 #include <linux/proc_fs.h>
 #include <linux/ioctl.h>
 #include <linux/slab.h>
+#include <linux/version.h>
 
 #define MPIK_DEVICENAME 	"mpik"
 
@@ -16,6 +17,7 @@ MODULE_DESCRIPTION("MPIK (Message Passing In Kernel)");
 
 #include "mpik_ioctl.h"
 #include "mpik.h"
+#include "../userspace/mpik.h"
 
 static dev_t mpik_dev_nb;
 static struct cdev* mpik_cdev;

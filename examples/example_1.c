@@ -10,35 +10,52 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
+#include <assert.h>
 
 #include <sys/syscall.h>
 #define gettid() syscall(SYS_gettid)
 
 #include "mpik_ioctl.h"
 
-#include "libmpik.h"
+#include "mpik.h"
 
 #include "../userspace/log.h"
 
+#define MSG_SENT_1		"Hello world!\n"
+#define MSG_SENT_2 		"How are you going?\n"
+#define MSG_REPLIED_1	"Bonjour le monde\n"
+#define MSG_REPLIED_2	"Tres bien, et vous?"
+
 static void *thread1(void *arg) {
 	char recv_buffer[100];
-	char reply_buffer[] = "Bonjour le monde\n";
 	
 	int chid1 = mpik_channel_create("channel_1", 1000, 0);
 	DEBUG("chid1=%d", chid1);
+	assert(chid1 >= 0);
+
+	int chid1b = mpik_channel_create("channel_1", 1000, 0);
+	assert((chid1b == -1) && (errno == EEXIST));
 
 	memset(recv_buffer, 0, sizeof(recv_buffer));
 	int s = mpik_receive(chid1, recv_buffer, sizeof(recv_buffer), 1000);
 	DEBUG("@@@ s=%d %d [%s]", s, strlen(recv_buffer), recv_buffer);
+	assert(!strcmp(recv_buffer, MSG_SENT_1));
 
-	int s2 = mpik_reply(chid1, s, reply_buffer, sizeof(reply_buffer), 1000);
+	int s2 = mpik_reply(chid1, s, MSG_REPLIED_1, sizeof(MSG_REPLIED_1), 1000);
+	DEBUG("@@@ s2=%d", s2);
+
+	s = mpik_receive(chid1, recv_buffer, sizeof(recv_buffer), 1000);
+	DEBUG("@@@ s=%d %d [%s]", s, strlen(recv_buffer), recv_buffer);
+	assert(!strcmp(recv_buffer, MSG_SENT_2));
+
+	s2 = mpik_reply(chid1, s, MSG_REPLIED_2, sizeof(MSG_REPLIED_2), 1000);
 	DEBUG("@@@ s2=%d", s2);
 
 	return NULL;
 }
 
 static void *thread2(void *arg) {
-	char send_buffer[] = "Hello world!\n";
 	char reply_buffer[50];
 
 	int chid1;
@@ -51,9 +68,15 @@ static void *thread2(void *arg) {
 	DEBUG("chid1=%d", chid1);
 
 	sleep(10);
-	int s = mpik_send(chid1, send_buffer, sizeof(send_buffer), reply_buffer, sizeof(reply_buffer), 0);
+	int s = mpik_send(chid1, MSG_SENT_1, sizeof(MSG_SENT_1), reply_buffer, sizeof(reply_buffer), 0);
 	DEBUG("s=%d", s);
 	DEBUG("reply_buffer=[%s] %d\n", reply_buffer, strlen(reply_buffer));
+	assert(!strcmp(reply_buffer, MSG_REPLIED_1));
+
+	s = mpik_send(chid1, MSG_SENT_2, sizeof(MSG_SENT_2), reply_buffer, sizeof(reply_buffer), 0);
+	DEBUG("s=%d", s);
+	DEBUG("reply_buffer=[%s] %d\n", reply_buffer, strlen(reply_buffer));
+	assert(!strcmp(reply_buffer, MSG_REPLIED_2));
 
 	return NULL;
 }

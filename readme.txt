@@ -14,7 +14,7 @@ export CROSS_COMPILE=/opt/armv7/bin/arm-buildroot-linux-gnueabihf-
 ===
 
 ssh pi@192.168.1.3
-logger "*****************" ; insmod mpik.ko ; chmod a+rw /dev/mpik ; chmod 0777 /dev/mpik
+loggerma "*****************" ; insmod mpik.ko ; chmod a+rw /dev/mpik ; chmod 0777 /dev/mpik
 rmmod mpik.ko
 
 ---

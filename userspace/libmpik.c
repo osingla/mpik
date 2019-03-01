@@ -13,7 +13,7 @@
 
 #include "../kernel/mpik_ioctl.h"
 
-#include "libmpik.h"
+#include "mpik.h"
 
 #include "log.h"
 
