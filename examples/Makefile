@@ -7,9 +7,9 @@ vpath %.c   ../target/:./
 vpath %.h   ../target/:./
 vpath %.o   ./
 
-CFLAGS = -Wall -std=gnu99 -fPIC
+CFLAGS = -Wall -std=gnu99 -fPIC -g
 CFLAGS += -I ../userspace/ -I ../kernel/ 
-LDFLAGS = -L ../target -l mpik -l pthread -l rt
+LDFLAGS = -L ../target -l mpik -l pthread -l rt -g
 
 all: example_1
 

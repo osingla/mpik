@@ -7,8 +7,9 @@ vpath %.c   ../target/:./
 vpath %.h   ../target/:./
 vpath %.o   ./
 
-CFLAGS = -Wall -std=gnu99 -fPIC
+CFLAGS = -Wall -std=gnu99 -fPIC -g
 #CFLAGS += -I ../Src
+LDFLAGS = -g
 
 all: libmpik.so
 

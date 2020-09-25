@@ -178,12 +178,20 @@ static ssize_t procfs_read(struct file *file, char __user *ubuf, size_t count, l
 	return procfs_len;
 }
  
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,6,0))
+static struct proc_ops procfs_mpik = 
+{
+	.proc_read = procfs_read,
+	.proc_write = procfs_write,
+};
+#else
 static struct file_operations procfs_mpik = 
 {
 	.owner = THIS_MODULE,
 	.read = procfs_read,
 	.write = procfs_write,
 };
+#endif
  
 static int mpik_open(struct inode* geraete_datei, struct file* instanz)
 {
@@ -230,8 +238,10 @@ static int mpik_channel_create(mpik_ioctl_channel_create_t *m) {
 		chid = -EEXIST;
 		goto done;
 	}
+    DEBUG("@@@ chid=%d\n", chid);
 
 	channel_t *ch = NULL;
+	DEBUG("@@@ nb_channels=%d nb_channels_allocated=%d\n", nb_channels, nb_channels_allocated);
 	if (nb_channels == nb_channels_allocated) {
 		ch = (channel_t *)kmalloc(sizeof(channel_t), GFP_KERNEL);
 		if (ch == NULL) {
@@ -243,6 +253,7 @@ static int mpik_channel_create(mpik_ioctl_channel_create_t *m) {
 		nb_channels_allocated++;
 	}
 	else {
+		DEBUG("@@@\n");
 		for (int n = 0; n < nb_channels_allocated; n++) {
 			channel_t *c = channels[n];
 			if (c->tid_owner == -1) {
@@ -250,16 +261,19 @@ static int mpik_channel_create(mpik_ioctl_channel_create_t *m) {
 				break;
 			}
 		}
+		DEBUG("@@@ chid=%d\n", chid);
 		if (chid == -1) {
 			printk(KERN_ERR "Internal error\n");
 			show_internal_info();
 			chid = -ECANCELED;
 			goto done;
 		}
+		DEBUG("@@@ chid=%d\n", chid);
 		ch = channels[chid];
 		nb_channels++;
 	}
 	
+	DEBUG("@@@ ch=%p\n", ch);
 	memset(ch, 0, sizeof(channel_t));
 	strncpy(ch->name, m->name, sizeof(ch->name));
 	ch->maxnb_msg_buffered = s.maxnb_msg_buffered;
@@ -436,7 +450,11 @@ static int mpik_reply(mpik_ioctl_reply_t *m) {
 	int index = ch->index;
 	send_waiting_t *sendw = &ch->send_waiting[index];
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
+	int ok = access_ok(sendw->reply_buffer, s.reply_len);
+#else
 	int ok = access_ok(VERIFY_WRITE, sendw->reply_buffer, s.reply_len);
+#endif
 	DEBUG("### ok=%d - [%s] %d\n", ok, s.reply_buffer, s.reply_len);
 	memcpy(sendw->reply_buffer, s.reply_buffer, s.reply_len);
 
@@ -481,7 +499,11 @@ static int mpik_send(mpik_ioctl_send_t *m) {
 	
 	// Copy the message into the receiver memory
 	DEBUG("### [%s]\n", s.send_buffer);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0))
+	int ok = access_ok(ch->recv_buffer, s.send_len);
+#else
 	int ok = access_ok(VERIFY_WRITE, ch->recv_buffer, s.send_len);
+#endif
 	DEBUG("### ok=%d - [%s] %d\n", ok, s.send_buffer, s.send_len);
 	memcpy(ch->recv_buffer, s.send_buffer, s.send_len);
 	DEBUG("### ok=%d\n", ok);
